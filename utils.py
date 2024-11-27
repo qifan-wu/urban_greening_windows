@@ -28,31 +28,49 @@ def save_tiff(output_file, output_path, crs, transform):
 
     print(f"GeoTIFF saved to {output_path}")
 
+def create_in_memory_ds(data, crs, transform, return_file=False):
+    '''
+    data: 2d array
+    '''
+    memfile = MemoryFile()
+    with memfile.open(
+        driver="GTiff",
+        height=data.shape[0],
+        width=data.shape[1],
+        count=1,
+        dtype=data.dtype.name,
+        crs=crs,
+        transform=transform,
+    ) as dst:
+        # Write the data to the in-memory file
+        dst.write(data, 1)
+    if return_file:
+        return memfile
+    return dst
 
 def read_nee(nee_file, nee_transform, nee_memory):
-
 
     nee_ds = xr.open_dataset(nee_file)
     time_length = len(nee_ds['NEE']) # should be 12
     for i in range(time_length - 10): #TODO: remove -10 after testing
         time_str = nee_ds.time[i].dt.strftime("%Y-%m-%d").values
         print("Writing NEE for time: ", time_str), "to memory"
-    # nee_ds['NEE'][0].rio.write_crs('EPSG:4326', inplace=True)
-    # nee_ds['NEE'][0].rio.write_transform(nee_transform, inplace=True)
         nee_time = nee_ds['NEE'][i]
+        nee_crs = nee_time.rio.crs
         # Save to an in-memory GeoTIFF
-        memfile = MemoryFile()
-        with memfile.open(
-            driver="GTiff",
-            height=nee_time.shape[0],
-            width=nee_time.shape[1],
-            count=1,
-            dtype=nee_time.dtype.name,
-            crs=nee_time.rio.crs,
-            transform=nee_transform,
-        ) as dst:
-            # Write the data to the in-memory file
-            dst.write(nee_time.values, 1)
+        # memfile = MemoryFile()
+        # with memfile.open(
+        #     driver="GTiff",
+        #     height=nee_time.shape[0],
+        #     width=nee_time.shape[1],
+        #     count=1,
+        #     dtype=nee_time.dtype.name,
+        #     crs=nee_crs,
+        #     transform=nee_transform,
+        # ) as dst:
+        #     # Write the data to the in-memory file
+        #     dst.write(nee_time.values, 1)
+        memfile = create_in_memory_ds(nee_time, nee_crs, nee_transform, return_file=True)
         nee_memory.append(memfile)
 
 
@@ -117,8 +135,18 @@ def pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory):
                 )
 
             # TODO: replace nee_memory[0] with specific time
-            memfile = nee_memory[0]
-            with memfile.open() as nee_dstrd:
+            # nee_dstrd = nee_memory[0]
+
+            # nee_crs = gpp_crs
+            
+            # # clip nee raster with shape
+            # nee_clip_image, nee_clip_transform = mask(nee_dstrd, [mapping(geom) for geom in msa_crsgpp.geometry], crop=True, all_touched=True)  # Include all touched pixels)
+            # nee_clip_image = np.where(nee_clip_image == -9999, np.nan, nee_clip_image) 
+            
+            # nee_msa = nee_clip_image[0]
+
+            memfile_nee = nee_memory[0]
+            with memfile_nee.open() as nee_dstrd:
                 nee_crs = gpp_crs
                 
                 # clip nee raster with shape
@@ -127,7 +155,8 @@ def pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory):
                 
                 nee_msa = nee_clip_image[0]
 
-            memfile.close()
+            # memfile.close()
+
     return {'gpp_msa_rr': gpp_msa_rr, 
             'ua_msa_rr': gpp_msa_rr, 
             'nlcd_msa': nlcd_msa, 
@@ -224,6 +253,32 @@ def get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd
     return nee_gpp_ratio_fine
 
 
+def get_downscaled_nee_msa(msa_ds, msa_name, gpp_file, nlcd_file, ua_file, nee_memory):
+    msa=msa_ds[msa_ds['NAMELSAD']==msa_name] # Subsetting to my AOI
+
+    pipe_output = pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory)
+    gpp_msa_rr = pipe_output['gpp_msa_rr']
+    ua_msa_rr = pipe_output['ua_msa_rr']
+    nlcd_msa = pipe_output['nlcd_msa']
+    nlcd_clip_image = pipe_output['nlcd_clip_image']
+    nlcd_crs = pipe_output['nlcd_crs']
+    nlcd_clip_transform = pipe_output['nlcd_clip_transform']
+    nee_msa = pipe_output['nee_msa']
+    nee_clip_transform = pipe_output['nee_clip_transform']
+    nee_crs = pipe_output['nee_crs']
+
+    gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa)
+    nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
+    downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled
+
+    downscaled_nee_info = {
+        'data': downscaled_nee,
+        'crs': nlcd_crs,
+        'transform': nlcd_clip_transform
+    }
+    return downscaled_nee_info
+
+
 def main():
     import geopandas as gpd
     nee_memory = []
@@ -237,48 +292,77 @@ def main():
     nlcd_file = "../urban_greening/nov.15/nlcd_2016_land_cover_l48_20210604.img" # crs: Albers Equal Area, resolution 30m
     ua_file = "../urban_greening/gis_processed/ua/ua_30.tif" # crs: Albers Equal Area, resolution 30m
 
-    msa=gpd.read_file(msa_file)
-    msa=msa[msa['NAMELSAD']=='Grand Rapids-Wyoming-Kentwood, MI Metro Area'] # Subsetting to my AOI
+    msa_ds=gpd.read_file(msa_file)
 
 
+    # msa=msa_ds[msa_ds['NAMELSAD']=='Grand Rapids-Wyoming-Kentwood, MI Metro Area'] # Subsetting to my AOI
 
-    # gpp_msa_rr, ua_msa_rr, nlcd_msa, nlcd_clip_image, nlcd_crs, nlcd_clip_transform, nee_msa, nee_clip_transform, nee_crs = pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory).values()
-    pipe_output = pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory)
-    gpp_msa_rr = pipe_output['gpp_msa_rr']
-    ua_msa_rr = pipe_output['ua_msa_rr']
-    nlcd_msa = pipe_output['nlcd_msa']
-    nlcd_clip_image = pipe_output['nlcd_clip_image']
-    nlcd_crs = pipe_output['nlcd_crs']
-    nlcd_clip_transform = pipe_output['nlcd_clip_transform']
-    nee_msa = pipe_output['nee_msa']
-    nee_clip_transform = pipe_output['nee_clip_transform']
-    nee_crs = pipe_output['nee_crs']
+    # pipe_output = pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory)
+    # gpp_msa_rr = pipe_output['gpp_msa_rr']
+    # ua_msa_rr = pipe_output['ua_msa_rr']
+    # nlcd_msa = pipe_output['nlcd_msa']
+    # nlcd_clip_image = pipe_output['nlcd_clip_image']
+    # nlcd_crs = pipe_output['nlcd_crs']
+    # nlcd_clip_transform = pipe_output['nlcd_clip_transform']
+    # nee_msa = pipe_output['nee_msa']
+    # nee_clip_transform = pipe_output['nee_clip_transform']
+    # nee_crs = pipe_output['nee_crs']
     
 
-    # from rasterio import plot
-    import matplotlib.pyplot as plt
+    # # from rasterio import plot
+    # import matplotlib.pyplot as plt
     
-    # # Show plog overlays
-    # fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    # rasterio.plot.show(gpp_msa_rr, ax=ax, alpha=0.8, title="Overlaying Rasters")
-    # cax = ax.imshow(gpp_msa_rr, cmap='viridis')  # Use a colormap of your choice
-    # cbar = fig.colorbar(cax, ax=ax, orientation='vertical')
-    # cbar.set_label("GPP Values")
-    # # rasterio.plot.show(nlcd_msa, ax=ax, alpha=1)  # Adjust alpha for transparency
-    # # rasterio.plot.show(ua_msa_rr, ax=ax, alpha=0.5)  # Adjust alpha for transparency
-    # plt.show()
-    gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa)
+    # # # Show plog overlays
+    # # fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    # # rasterio.plot.show(gpp_msa_rr, ax=ax, alpha=0.8, title="Overlaying Rasters")
+    # # cax = ax.imshow(gpp_msa_rr, cmap='viridis')  # Use a colormap of your choice
+    # # cbar = fig.colorbar(cax, ax=ax, orientation='vertical')
+    # # cbar.set_label("GPP Values")
+    # # # rasterio.plot.show(nlcd_msa, ax=ax, alpha=1)  # Adjust alpha for transparency
+    # # # rasterio.plot.show(ua_msa_rr, ax=ax, alpha=0.5)  # Adjust alpha for transparency
+    # # plt.show()
+    # gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa)
 
-    # fig, ax = plt.subplots(figsize=(10, 6)) 
-    # cax = ax.imshow(gpp_msa_rr_filled, cmap='viridis')  # Use a colormap of your choice
-    # cbar = fig.colorbar(cax, ax=ax, orientation='vertical')
-    # cbar.set_label("GPP Values")
-    # plt.show()
-    nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
-    downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled
-    save_tiff(downscaled_nee, '../output/downscaled_nee_check.tif', nlcd_crs, nlcd_clip_transform)
+    # # fig, ax = plt.subplots(figsize=(10, 6)) 
+    # # cax = ax.imshow(gpp_msa_rr_filled, cmap='viridis')  # Use a colormap of your choice
+    # # cbar = fig.colorbar(cax, ax=ax, orientation='vertical')
+    # # cbar.set_label("GPP Values")
+    # # plt.show()
+    # nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
+    # downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled
+    # # save_tiff(downscaled_nee, '../output/downscaled_nee_check.tif', nlcd_crs, nlcd_clip_transform)
+    # mem1 = create_in_memory_ds(downscaled_nee, nlcd_crs, nlcd_clip_transform)
+
+    from rasterio.merge import merge
     
+    downscaled_nee_msa1 = get_downscaled_nee_msa(msa_ds, 'Grand Rapids-Wyoming-Kentwood, MI Metro Area', gpp_file, nlcd_file, ua_file, nee_memory)
+    downscaled_nee_msa2 = get_downscaled_nee_msa(msa_ds, 'Lansing-East Lansing, MI Metro Area', gpp_file, nlcd_file, ua_file, nee_memory)
+    
+    # dst1 = create_in_memory_ds(downscaled_nee_msa1['data'], downscaled_nee_msa1['crs'], downscaled_nee_msa1['transform'], return_file=False)
+    # dst2 = create_in_memory_ds(downscaled_nee_msa2['data'], downscaled_nee_msa2['crs'], downscaled_nee_msa2['transform'], return_file=False)
+    mem1 = create_in_memory_ds(downscaled_nee_msa1['data'], downscaled_nee_msa1['crs'], downscaled_nee_msa1['transform'], return_file=True)
+    mem2 = create_in_memory_ds(downscaled_nee_msa2['data'], downscaled_nee_msa2['crs'], downscaled_nee_msa2['transform'], return_file=True)
 
+    with mem1.open() as src1, mem2.open() as src2:
+    # Step 2: Merge the datasets
+        merged_data, merged_transform = merge([src1, src2])
+
+        # Step 3: Save the merged data to a TIFF file
+        output_file = "merged_raster.tif"
+        with rasterio.open(
+            output_file,
+            "w",
+            driver="GTiff",
+            height=merged_data.shape[1],
+            width=merged_data.shape[2],
+            count=1,
+            dtype=merged_data.dtype,
+            crs=src1.crs,  # Assuming both have the same CRSs
+            transform=merged_transform,
+        ) as dst:
+            dst.write(merged_data[0], 1)  # Write the first band (merged data)
+
+    print(f"Merged raster saved to {output_file}")
 
 
 if __name__ == "__main__":
