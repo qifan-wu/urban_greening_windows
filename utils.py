@@ -244,12 +244,17 @@ def get_gpp_coarse(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, ne
     return gpp_filled_coarse
 
 def get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs):
-    nee_gpp_ratio_fine = np.empty_like(gpp_msa_rr_filled, dtype=np.float32)
     gpp_filled_coarse = get_gpp_coarse(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
+
+    
+    safe_gpp_filled_coarse = np.where(gpp_filled_coarse == 0, 0.1, gpp_filled_coarse) # Avoid division by zero
+    nee_gpp_ratio_coarse = nee_msa / safe_gpp_filled_coarse
+
+    nee_gpp_ratio_fine = np.empty_like(gpp_msa_rr_filled, dtype=np.float32)
 
     # reproject and resample NEE/GPP ratio to match gpp filled resolution
     reproject(
-        source=nee_msa / gpp_filled_coarse,  
+        source=nee_gpp_ratio_coarse,  
         destination=nee_gpp_ratio_fine,  
         src_transform=nee_clip_transform, 
         src_crs=nee_crs, 
@@ -276,9 +281,10 @@ def get_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, nee_memory
     nee_crs = pipe_output['nee_crs']
 
     gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name)
-    
+
     nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
     downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled
+    # downscaled_nee[np.isnan(nee_gpp_ratio_fine) | np.isnan(gpp_msa_rr_filled)] = 0 #if nee or gpp does not have data, set downscaled nee to 0
 
     downscaled_nee_info = {
         'data': downscaled_nee,
@@ -354,8 +360,8 @@ def main():
         mem_downscaled_nee_list.append(mem)
         
 
-    gpp_mean_data_df = pd.DataFrame(gpp_mean_cat_data)
-    gpp_mean_data_df.to_csv('../output/gpp_mean_data1.csv', index=False)
+    # gpp_mean_data_df = pd.DataFrame(gpp_mean_cat_data)
+    # gpp_mean_data_df.to_csv('../output/gpp_mean_data2.csv', index=False)
 
     datasets = [mem.open() for mem in mem_downscaled_nee_list]
     
@@ -365,7 +371,7 @@ def main():
     print("Merging completed")
 
     merged_raster = merged_data[0] #get the first band
-    output_file = '../output/mergedMI1.tif'
+    output_file = '../output/mergedMI4.tif'
     save_tiff(merged_raster, output_file, datasets[0].crs, merged_transform)
 
     # Step 4: Close datasets
