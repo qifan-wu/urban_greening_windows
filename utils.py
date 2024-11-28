@@ -10,21 +10,21 @@ nee_transform = rasterio.transform.from_origin(minx, maxy, resolution_x, resolut
 
 
 # Write the ndarray to a GeoTIFF
-def save_tiff(output_file, output_path, crs, transform):
+def save_tiff(data, output_path, crs, transform):
     with rasterio.open(
         output_path,
         "w",
         driver="GTiff",
-        height=output_file.shape[0],
-        width=output_file.shape[1],
+        height=data.shape[0],
+        width=data.shape[1],
         count=1,  # Number of bands
-        dtype=output_file.dtype,
+        dtype=data.dtype,
         crs=crs,
         transform=transform,
-        # nodata=np.nan, # do not set this or there will be reprojet edge with value 0
+        nodata=np.nan, 
     ) as dst:
         # Write data to the first band
-        dst.write(output_file, 1)
+        dst.write(data, 1)
 
     print(f"GeoTIFF saved to {output_path}")
 
@@ -41,6 +41,7 @@ def create_in_memory_ds(data, crs, transform, return_file=False):
         dtype=data.dtype.name,
         crs=crs,
         transform=transform,
+        nodata=np.nan
     ) as dst:
         # Write the data to the in-memory file
         dst.write(data, 1)
@@ -80,7 +81,7 @@ from rasterio.enums import Resampling
 from rasterio.warp import calculate_default_transform, reproject
 import numpy as np
 
-def pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory):
+def pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, nee_memory):
     with rasterio.open(nlcd_file) as nlcd_dstrd:
         nlcd_crs = nlcd_dstrd.crs
         geometries_aea = [mapping(geom) for geom in msa.geometry]
@@ -122,7 +123,7 @@ def pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory):
                 ua_clip_image, ua_clip_transform = mask(ua_dstrd, geometries_aea, crop=True)
                 ua_msa = ua_clip_image[0]
 
-                ua_msa_rr = np.empty((ua_clip_image.shape[1], ua_clip_image.shape[2]), dtype=ua_dstrd.meta['dtype'])
+                ua_msa_rr = np.empty((nlcd_clip_image.shape[1], nlcd_clip_image.shape[2]), dtype=ua_dstrd.meta['dtype'])
 
                 reproject(
                     source=ua_msa,
@@ -158,9 +159,8 @@ def pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory):
             # memfile.close()
 
     return {'gpp_msa_rr': gpp_msa_rr, 
-            'ua_msa_rr': gpp_msa_rr, 
+            'ua_msa_rr': ua_msa_rr, 
             'nlcd_msa': nlcd_msa, 
-            'nlcd_clip_image': nlcd_clip_image, 
             'nlcd_crs': nlcd_crs, 
             'nlcd_clip_transform': nlcd_clip_transform,
             'nee_msa': nee_msa, 
@@ -169,7 +169,7 @@ def pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory):
 
 
 def create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa):
-    valid_gpp_mask = ~np.isnan(gpp_msa_rr)
+    
     urban_mask = (ua_msa_rr != 0)
     suburban_mask = (ua_msa_rr == 0)
     forest_mask = (nlcd_msa == 41) | (nlcd_msa == 42) | (nlcd_msa == 43)
@@ -188,16 +188,16 @@ def create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa):
         'suburban_wetland': suburban_mask & wetland_mask,
     }
 
-    return valid_gpp_mask, nlcd_mask_dict
+    return nlcd_mask_dict
 
 
-def gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa):
-    
-    valid_gpp_mask, nlcd_mask_dict = create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa)
+def gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name):
+    valid_gpp_mask = ~np.isnan(gpp_msa_rr)
+    nlcd_mask_dict = create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa)
+
     gpp_msa_rr_filled = np.copy(gpp_msa_rr)
 
-    category_gpp_mean_list = []
-    record = {'name': 'test_msa'}
+    record = {'name': msa_name}
 
     water_mask = (nlcd_msa > 10) & (nlcd_msa < 20)
     developed_mask = (nlcd_msa > 20) & (nlcd_msa < 40)
@@ -209,11 +209,20 @@ def gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa):
 
         category_gpp_mean = np.nanmean(gpp_msa_rr[landcover_mask])
         record[category] = category_gpp_mean
-        
+
+        # # debug
+        # print(category)
+        # import rasterio.plot
+        # rasterio.plot.show(landcover_mask) 
+        # print('----')
+
         gpp_msa_rr_filled[~valid_gpp_mask & landcover_mask] = category_gpp_mean
 
-    print(record)
-    print("Gap filled GPP values for each landcover category have been calculated")
+    gpp_mean_cat_data.append(record)
+
+    print("     ", record)
+    # print("Gap filled GPP values for each landcover category have been calculated")
+
     return gpp_msa_rr_filled
 
 
@@ -253,21 +262,21 @@ def get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd
     return nee_gpp_ratio_fine
 
 
-def get_downscaled_nee_msa(msa_ds, msa_name, gpp_file, nlcd_file, ua_file, nee_memory):
-    msa=msa_ds[msa_ds['NAMELSAD']==msa_name] # Subsetting to my AOI
-
-    pipe_output = pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory)
+def get_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, nee_memory):
+     # Subsetting to my AOI
+    msa_name = msa['NAMELSAD'].values[0]
+    pipe_output = pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, nee_memory)
     gpp_msa_rr = pipe_output['gpp_msa_rr']
     ua_msa_rr = pipe_output['ua_msa_rr']
     nlcd_msa = pipe_output['nlcd_msa']
-    nlcd_clip_image = pipe_output['nlcd_clip_image']
     nlcd_crs = pipe_output['nlcd_crs']
     nlcd_clip_transform = pipe_output['nlcd_clip_transform']
     nee_msa = pipe_output['nee_msa']
     nee_clip_transform = pipe_output['nee_clip_transform']
     nee_crs = pipe_output['nee_crs']
 
-    gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa)
+    gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name)
+    
     nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
     downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled
 
@@ -277,6 +286,34 @@ def get_downscaled_nee_msa(msa_ds, msa_name, gpp_file, nlcd_file, ua_file, nee_m
         'transform': nlcd_clip_transform
     }
     return downscaled_nee_info
+
+from rasterio.merge import merge
+import rasterio
+from rasterio.io import MemoryFile
+
+def merge_in_batches(memfiles, batch_size):
+    merged_files = []
+    for i in range(0, len(memfiles), batch_size):
+        batch = memfiles[i:i + batch_size]
+        datasets = [mem.open() for mem in batch]
+        merged_data, merged_transform = merge(datasets)
+        for ds in datasets:
+            ds.close()
+        # Write intermediate result to a temporary MemoryFile
+        temp_mem = MemoryFile()
+        with temp_mem.open(
+            driver="GTiff",
+            height=merged_data.shape[1],
+            width=merged_data.shape[2],
+            count=1,
+            dtype=merged_data.dtype,
+            crs=datasets[0].crs,  # Assume same CRS
+            transform=merged_transform,
+        ) as dst:
+            dst.write(merged_data[0], 1)
+        merged_files.append(temp_mem)
+    return merged_files
+
 
 
 def main():
@@ -294,75 +331,71 @@ def main():
 
     msa_ds=gpd.read_file(msa_file)
 
+    # from rasterio import plot
+    # import matplotlib.pyplot as plt
+    
 
-    # msa=msa_ds[msa_ds['NAMELSAD']=='Grand Rapids-Wyoming-Kentwood, MI Metro Area'] # Subsetting to my AOI
+    # msa_names = ['Grand Rapids-Wyoming-Kentwood, MI Metro Area', 'Lansing-East Lansing, MI Metro Area']
+    # msas = [msa_ds[msa_ds['NAMELSAD']==msa_name] for msa_name in msa_names]
 
-    # pipe_output = pipe(msa, gpp_file, nlcd_file, ua_file, nee_memory)
+    import pandas as pd
+    global gpp_mean_cat_data 
+    gpp_mean_cat_data = []
+
+    mem_downscaled_nee_list = []
+
+    # ======== test with all msas ========
+    for index, record in msa_ds.iterrows():
+        msa_name = record['NAMELSAD']
+        print(f'Generating downsclaed data for {msa_name}...')
+        msa = msa_ds.loc[[index]]
+        downscaled_nee_msa = get_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, nee_memory)
+        mem = create_in_memory_ds(downscaled_nee_msa['data'], downscaled_nee_msa['crs'], downscaled_nee_msa['transform'], return_file=True)
+        mem_downscaled_nee_list.append(mem)
+        
+
+    gpp_mean_data_df = pd.DataFrame(gpp_mean_cat_data)
+    gpp_mean_data_df.to_csv('../output/gpp_mean_data1.csv', index=False)
+
+    datasets = [mem.open() for mem in mem_downscaled_nee_list]
+    
+    # Step 2: Merge datasets
+    print("Merging datasets. This might take a while...")
+    merged_data, merged_transform = rasterio.merge.merge(datasets, nodata=np.nan)
+    print("Merging completed")
+
+    merged_raster = merged_data[0] #get the first band
+    output_file = '../output/mergedMI1.tif'
+    save_tiff(merged_raster, output_file, datasets[0].crs, merged_transform)
+
+    # Step 4: Close datasets
+    for ds in datasets:
+        ds.close()
+    # ======== test with all msas ========
+    
+
+    # ====== test with 1 msa ========
+    # msa_name = 'Grand Rapids-Wyoming-Kentwood, MI Metro Area'
+    # msa=msa_ds[msa_ds['NAMELSAD']==msa_name] # Subsetting to my AOI
+
+    # pipe_output = pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, nee_memory)
     # gpp_msa_rr = pipe_output['gpp_msa_rr']
     # ua_msa_rr = pipe_output['ua_msa_rr']
     # nlcd_msa = pipe_output['nlcd_msa']
-    # nlcd_clip_image = pipe_output['nlcd_clip_image']
     # nlcd_crs = pipe_output['nlcd_crs']
     # nlcd_clip_transform = pipe_output['nlcd_clip_transform']
     # nee_msa = pipe_output['nee_msa']
     # nee_clip_transform = pipe_output['nee_clip_transform']
     # nee_crs = pipe_output['nee_crs']
-    
 
-    # # from rasterio import plot
-    # import matplotlib.pyplot as plt
+    # gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name)
+    # # save_tiff(gpp_msa_rr_filled, '../output/msagpptest.tif', nlcd_crs, nlcd_clip_transform)
     
-    # # # Show plog overlays
-    # # fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    # # rasterio.plot.show(gpp_msa_rr, ax=ax, alpha=0.8, title="Overlaying Rasters")
-    # # cax = ax.imshow(gpp_msa_rr, cmap='viridis')  # Use a colormap of your choice
-    # # cbar = fig.colorbar(cax, ax=ax, orientation='vertical')
-    # # cbar.set_label("GPP Values")
-    # # # rasterio.plot.show(nlcd_msa, ax=ax, alpha=1)  # Adjust alpha for transparency
-    # # # rasterio.plot.show(ua_msa_rr, ax=ax, alpha=0.5)  # Adjust alpha for transparency
-    # # plt.show()
-    # gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa)
-
-    # # fig, ax = plt.subplots(figsize=(10, 6)) 
-    # # cax = ax.imshow(gpp_msa_rr_filled, cmap='viridis')  # Use a colormap of your choice
-    # # cbar = fig.colorbar(cax, ax=ax, orientation='vertical')
-    # # cbar.set_label("GPP Values")
-    # # plt.show()
     # nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
     # downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled
-    # # save_tiff(downscaled_nee, '../output/downscaled_nee_check.tif', nlcd_crs, nlcd_clip_transform)
-    # mem1 = create_in_memory_ds(downscaled_nee, nlcd_crs, nlcd_clip_transform)
-
-    from rasterio.merge import merge
+    # save_tiff(downscaled_nee, '../output/msaneetest.tif', nlcd_crs, nlcd_clip_transform)
+    # ====== test with 1 msa ========
     
-    downscaled_nee_msa1 = get_downscaled_nee_msa(msa_ds, 'Grand Rapids-Wyoming-Kentwood, MI Metro Area', gpp_file, nlcd_file, ua_file, nee_memory)
-    downscaled_nee_msa2 = get_downscaled_nee_msa(msa_ds, 'Lansing-East Lansing, MI Metro Area', gpp_file, nlcd_file, ua_file, nee_memory)
-    
-    # dst1 = create_in_memory_ds(downscaled_nee_msa1['data'], downscaled_nee_msa1['crs'], downscaled_nee_msa1['transform'], return_file=False)
-    # dst2 = create_in_memory_ds(downscaled_nee_msa2['data'], downscaled_nee_msa2['crs'], downscaled_nee_msa2['transform'], return_file=False)
-    mem1 = create_in_memory_ds(downscaled_nee_msa1['data'], downscaled_nee_msa1['crs'], downscaled_nee_msa1['transform'], return_file=True)
-    mem2 = create_in_memory_ds(downscaled_nee_msa2['data'], downscaled_nee_msa2['crs'], downscaled_nee_msa2['transform'], return_file=True)
-
-    with mem1.open() as src1, mem2.open() as src2:
-    # Step 2: Merge the datasets
-        merged_data, merged_transform = merge([src1, src2])
-
-        # Step 3: Save the merged data to a TIFF file
-        output_file = "merged_raster.tif"
-        with rasterio.open(
-            output_file,
-            "w",
-            driver="GTiff",
-            height=merged_data.shape[1],
-            width=merged_data.shape[2],
-            count=1,
-            dtype=merged_data.dtype,
-            crs=src1.crs,  # Assuming both have the same CRSs
-            transform=merged_transform,
-        ) as dst:
-            dst.write(merged_data[0], 1)  # Write the first band (merged data)
-
-    print(f"Merged raster saved to {output_file}")
 
 
 if __name__ == "__main__":
