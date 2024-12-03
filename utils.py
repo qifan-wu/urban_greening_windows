@@ -87,7 +87,12 @@ def pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, nee_memory):
         geometries_aea = [mapping(geom) for geom in msa.geometry]
 
          # Clip the raster using the reprojected geometries
-        nlcd_clip_image, nlcd_clip_transform = mask(nlcd_dstrd, geometries_aea, crop=True)
+        try:
+            nlcd_clip_image, nlcd_clip_transform = mask(nlcd_dstrd, geometries_aea, crop=True)
+        except ValueError as e:
+            print(f"No NLCD data for {msa['NAMELSAD'].values[0]}")
+            nlcd_clip_image
+            
         nlcd_msa = nlcd_clip_image[0]
 
         with rasterio.open(gpp_file) as gpp_dstrd:
@@ -329,11 +334,14 @@ def main():
     read_nee(nee_file, nee_transform, nee_memory)
     # print(nee_memory)
 
-    msa_file = '../urban_greening/msa/michiganMSA_reprojected.shp' # crs: Albers Equal Area
+    # msa_file = '../urban_greening/msa/michiganMSA_reprojected.shp' # for michigan, crs: Albers Equal Area
+    # msa_file = '../urban_greening/msa/msaUS/msaUS_aea.shp' # for US, crs: Albers Equal Area
+    msa_file = '../urban_greening/msa/msaUS_mainland_aea.shp' # for US without MSA from Hawaii, Puerto Rico and Alaska (no NLCD or no carbon data), crs: Albers Equal Area
+
     gpp_file = "../urban_greening/nov.15/michigan_test/modis-250-gpp-2015001.tif" # EPSG:4326
     nee_file = "../urban_greening/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.2015.nc" # EPSG:4326, resolution 1/12 degree
     nlcd_file = "../urban_greening/nov.15/nlcd_2016_land_cover_l48_20210604.img" # crs: Albers Equal Area, resolution 30m
-    ua_file = "../urban_greening/gis_processed/ua/ua_30.tif" # crs: Albers Equal Area, resolution 30m
+    ua_file = "../urban_greening/ua/ua_us_30_clip.tif" # crs: Albers Equal Area, resolution 30m
 
     msa_ds=gpd.read_file(msa_file)
 
@@ -368,10 +376,11 @@ def main():
     # Step 2: Merge datasets
     print("Merging datasets. This might take a while...")
     merged_data, merged_transform = rasterio.merge.merge(datasets, nodata=np.nan)
+    
     print("Merging completed")
 
     merged_raster = merged_data[0] #get the first band
-    output_file = '../output/mergedMI4.tif'
+    output_file = '../output/mergedNEE_US.tif'
     save_tiff(merged_raster, output_file, datasets[0].crs, merged_transform)
 
     # Step 4: Close datasets
