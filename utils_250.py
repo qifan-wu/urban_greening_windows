@@ -176,7 +176,7 @@ def pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, nee_memory):
 def create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa):
     
     urban_mask = (ua_msa_rr != 0)
-    suburban_mask = (ua_msa_rr == 0)
+    suburban_mask = (ua_msa_rr == 65535) # nodata value for ua_us_30_clip0.tif, (the value is 0 for ua_30 michigan)
 
     forest_mask = (nlcd_msa == 41) | (nlcd_msa == 42) | (nlcd_msa == 43)
     shrub_mask = (nlcd_msa == 51) | (nlcd_msa == 52)
@@ -201,15 +201,15 @@ def gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name):
     valid_gpp_mask = ~np.isnan(gpp_msa_rr)
     nlcd_mask_dict = create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa)
 
-    gpp_msa_rr_filled = np.copy(gpp_msa_rr)
+    gpp_msa_rr_filled_30m = np.copy(gpp_msa_rr)
 
     record = {'name': msa_name}
 
     water_mask = (nlcd_msa > 10) & (nlcd_msa < 20)
     developed_mask = (nlcd_msa > 20) & (nlcd_msa < 40)
 
-    gpp_msa_rr_filled[~valid_gpp_mask & water_mask] = 0
-    gpp_msa_rr_filled[~valid_gpp_mask & developed_mask] = 0
+    gpp_msa_rr_filled_30m[~valid_gpp_mask & water_mask] = 0
+    gpp_msa_rr_filled_30m[~valid_gpp_mask & developed_mask] = 0
                     
     for category, landcover_mask in nlcd_mask_dict.items():
 
@@ -222,35 +222,58 @@ def gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name):
         # rasterio.plot.show(landcover_mask) 
         # print('----')
 
-        gpp_msa_rr_filled[~valid_gpp_mask & landcover_mask] = category_gpp_mean
+        gpp_msa_rr_filled_30m[~valid_gpp_mask & landcover_mask] = category_gpp_mean
 
     gpp_mean_cat_data.append(record)
 
     print("     ", record)
     # print("Gap filled GPP values for each landcover category have been calculated")
 
-    return gpp_msa_rr_filled
+    return gpp_msa_rr_filled_30m
 
 
-def get_gpp_coarse(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs):
+def reproject_gpp_filled(gpp_msa_rr_filled_30m, nlcd_clip_transform, nlcd_crs, target_resolution, target_transform):
+    '''
+    Reproject GPP filled 30m to original gpp resolution 250m
+    '''
+    gpp_msa_rr_filled_250 = np.empty(
+        (int(gpp_msa_rr_filled_30m.shape[0] / (target_resolution / 30)), 
+         int(gpp_msa_rr_filled_30m.shape[1] / (target_resolution / 30))), 
+        dtype=np.float32
+    )
+
+    reproject(
+        source=gpp_msa_rr_filled_30m,
+        destination=gpp_msa_rr_filled_250,
+        src_transform=nlcd_clip_transform,
+        src_crs=nlcd_crs,
+        dst_transform=target_transform,  # Adjust for resolution scaling
+        dst_crs=nlcd_crs,
+        resampling=Resampling.nearest,
+    )
+
+    return gpp_msa_rr_filled_250
+
+
+def get_gpp_coarse(gpp_msa_rr_filled, nee_msa, gpp_transform_250, nlcd_crs, nee_clip_transform, nee_crs):
     gpp_filled_coarse = np.empty_like(nee_msa, dtype=np.float32)
 
     # Reproject and resample GPP to match NEE's CRS, resolution, and extent
     reproject(
         source=gpp_msa_rr_filled, 
         destination=gpp_filled_coarse,  
-        src_transform=nlcd_clip_transform, 
+        src_transform=gpp_transform_250, 
         src_crs=nlcd_crs,  
         dst_transform=nee_clip_transform, 
         dst_crs=nee_crs,  
-        resampling=Resampling.average,  # Use nearest neighbor resampling
+        resampling=Resampling.average,  
         src_nodata=np.nan,  
         dst_nodata=np.nan  
     )
     return gpp_filled_coarse
 
-def get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs):
-    gpp_filled_coarse = get_gpp_coarse(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
+def get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs):
+    gpp_filled_coarse = get_gpp_coarse(gpp_msa_rr_filled, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs)
 
     
     safe_gpp_filled_coarse = np.where(gpp_filled_coarse == 0, 0.1, gpp_filled_coarse) # Avoid division by zero
@@ -264,16 +287,17 @@ def get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd
         destination=nee_gpp_ratio_fine,  
         src_transform=nee_clip_transform, 
         src_crs=nee_crs, 
-        dst_transform=nlcd_clip_transform, 
+        dst_transform=target_transform, 
         dst_crs=nlcd_crs,  
         resampling=Resampling.nearest,  # Use nearest neighbor resampling
         src_nodata=np.nan,  
         dst_nodata=np.nan  
     )
+    
     return nee_gpp_ratio_fine
 
 
-def get_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, nee_memory):
+def pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, nee_memory):
      # Subsetting to my AOI
     msa_name = msa['NAMELSAD'].values[0]
     pipe_output = pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, nee_memory)
@@ -286,18 +310,29 @@ def get_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, nee_memory
     nee_clip_transform = pipe_output['nee_clip_transform']
     nee_crs = pipe_output['nee_crs']
 
-    gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name)
 
-    nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
-    downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled
-    # downscaled_nee[np.isnan(nee_gpp_ratio_fine) | np.isnan(gpp_msa_rr_filled)] = 0 #if nee or gpp does not have data, set downscaled nee to 0
+    from rasterio.transform import Affine
+    target_transform = nlcd_clip_transform * Affine.scale(250 / 30)
+    gpp_msa_rr_filled_30m = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name)
+    gpp_msa_rr_filled_250m = reproject_gpp_filled(gpp_msa_rr_filled_30m, nlcd_clip_transform, nlcd_crs, target_resolution=250, target_transform=target_transform)
+
+    nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled_250m, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs)
+    
+    testmem = create_in_memory_ds(nee_gpp_ratio_fine, nlcd_crs, target_transform, return_file=True) # test only, delete later
+    test_ratio_list.append(testmem) # test only, delete later
+
+    downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled_250m
 
     downscaled_nee_info = {
         'data': downscaled_nee,
         'crs': nlcd_crs,
-        'transform': nlcd_clip_transform
+        'transform': target_transform,  # Update with 250m transform
     }
+
+    # downscaled_nee[np.isnan(nee_gpp_ratio_fine) | np.isnan(gpp_msa_rr_filled)] = 0 #if nee or gpp does not have data, set downscaled nee to 0
+
     return downscaled_nee_info
+    
 
 from rasterio.merge import merge
 import rasterio
@@ -363,14 +398,14 @@ def main():
     read_nee(nee_file, nee_transform, nee_memory)
     # print(nee_memory)
 
-    msa_file = '../urban_greening/msa/michiganMSA_reprojected.shp' # for michigan, crs: Albers Equal Area
+    # msa_file = '../urban_greening/msa/michiganMSA_reprojected.shp' # for michigan, crs: Albers Equal Area
     # msa_file = '../urban_greening/msa/msaUS/msaUS_aea.shp' # for US, crs: Albers Equal Area
-    # msa_file = '../urban_greening/msa/msaUS_mainland_aea.shp' # for US without MSA from Hawaii, Puerto Rico and Alaska (no NLCD or no carbon data), crs: Albers Equal Area
-
+    msa_file = '../urban_greening/msa/msaUS/msaUS_mland_aea1_M1.shp' # for US without MSA from Hawaii, Puerto Rico and Alaska (no NLCD or no carbon data), and without some msa in midwest (see removed_msa.txt); crs: Albers Equal Area
+    
     gpp_file = "../urban_greening/nov.15/michigan_test/modis-250-gpp-2015001.tif" # EPSG:4326
     nee_file = "../urban_greening/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.2015.nc" # EPSG:4326, resolution 1/12 degree
     nlcd_file = "../urban_greening/nov.15/nlcd_2016_land_cover_l48_20210604.img" # crs: Albers Equal Area, resolution 30m
-    ua_file = "../urban_greening/ua/ua_us_30_clip0.tif" # crs: Albers Equal Area, resolution 30m
+    ua_file = "../urban_greening/ua/ua_us_30_clip1.tif" # crs: Albers Equal Area, resolution 30m
 
     msa_ds=gpd.read_file(msa_file)
 
@@ -385,64 +420,77 @@ def main():
     global gpp_mean_cat_data 
     gpp_mean_cat_data = []
 
-    mem_downscaled_nee_list = []
+    global test_ratio_list
+    test_ratio_list = [] # test only, delete later
 
-    # ======== test with all msas ========
-    for index, record in msa_ds.iterrows():
-        msa_name = record['NAMELSAD']
-        print(f'Generating downsclaed data for {msa_name}...')
-        msa = msa_ds.loc[[index]]
-        downscaled_nee_msa = get_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, nee_memory)
-        mem = create_in_memory_ds(downscaled_nee_msa['data'], downscaled_nee_msa['crs'], downscaled_nee_msa['transform'], return_file=True)
-        mem_downscaled_nee_list.append(mem)
+    # # ======== test with all msas ========
+    # mem_downscaled_nee_list = []
+    # for index, record in msa_ds.iterrows():
+    #     msa_name = record['NAMELSAD']
+    #     print(f'Generating downsclaed data for {msa_name}...')
+    #     msa = msa_ds.loc[[index]]
+    #     downscaled_nee_msa = pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, nee_memory)
+    #     mem = create_in_memory_ds(downscaled_nee_msa['data'], downscaled_nee_msa['crs'], downscaled_nee_msa['transform'], return_file=True)
+    #     mem_downscaled_nee_list.append(mem)
         
-    ## Save gpp_mean_values to csv
-    # gpp_mean_data_df = pd.DataFrame(gpp_mean_cat_data)
-    # gpp_mean_data_df.to_csv('../output/gpp_mean_data2.csv', index=False)
+        
+    # # Save gpp_mean_values to csv
+    # # gpp_mean_data_df = pd.DataFrame(gpp_mean_cat_data)
+    # # gpp_mean_data_df.to_csv('../output/gpp_mean_data_2501.csv', index=False)
 
-    
-    
-    # Step 2: Merge datasets
-    # merge_datasets_to_disk(mem_downscaled_nee_list, '../output/testumiiiii.tif')
-    
-    datasets = [mem.open() for mem in mem_downscaled_nee_list]
-    print("Merging datasets. This might take a while...")
-    merged_data, merged_transform = rasterio.merge.merge(datasets, nodata=np.nan)
-    
-    print("Merging completed")
+    # datasets_ratio = [mem.open() for mem in test_ratio_list]
+    # merged_data_ratio, merged_transform_ratio = rasterio.merge.merge(datasets_ratio, nodata=np.nan)
+    # save_tiff(merged_data_ratio[0], '../output/ratio_us.tif', datasets_ratio[0].crs, merged_transform_ratio)
 
-    merged_raster = merged_data[0] #get the first band
-    output_file = '../output/mergedNEE_US.tif'
-    save_tiff(merged_raster, output_file, datasets[0].crs, merged_transform)
+    # # # Merge datasets
+    # # datasets = [mem.open() for mem in mem_downscaled_nee_list]
+    # # print("Merging datasets. This might take a while...")
+    # # merged_data, merged_transform = rasterio.merge.merge(datasets, nodata=np.nan)
+    
+    # # print("Merging completed")
 
-    # Step 4: Close datasets
-    for ds in datasets:
-        ds.close()
-    # ======== test with all msas ========
+    # # merged_raster = merged_data[0] #get the first band
+    # # output_file = '../output/testUSmainland.tif'
+    # # save_tiff(merged_raster, output_file, datasets[0].crs, merged_transform)
+
+    # # # Close datasets
+    # # for ds in datasets:
+    # #     ds.close()
+    # # ======== test with all msas ========
     
 
-    # # ====== test with 1 msa ========
-    # msa_name = 'Grand Rapids-Wyoming-Kentwood, MI Metro Area'
-    # msa=msa_ds[msa_ds['NAMELSAD']==msa_name] # Subsetting to my AOI
+    # ====== test with 1 msa ========
+    msa_name = 'Grand Rapids-Wyoming-Kentwood, MI Metro Area'
+    msa=msa_ds[msa_ds['NAMELSAD']==msa_name] # Subsetting to my AOI
 
-    # pipe_output = pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, nee_memory)
-    # gpp_msa_rr = pipe_output['gpp_msa_rr']
-    # ua_msa_rr = pipe_output['ua_msa_rr']
-    # nlcd_msa = pipe_output['nlcd_msa']
-    # nlcd_crs = pipe_output['nlcd_crs']
-    # nlcd_clip_transform = pipe_output['nlcd_clip_transform']
-    # nee_msa = pipe_output['nee_msa']
-    # nee_clip_transform = pipe_output['nee_clip_transform']
-    # nee_crs = pipe_output['nee_crs']
+    pipe_output = pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, nee_memory)
+    gpp_msa_rr = pipe_output['gpp_msa_rr']
+    ua_msa_rr = pipe_output['ua_msa_rr']
+    nlcd_msa = pipe_output['nlcd_msa']
+    nlcd_crs = pipe_output['nlcd_crs']
+    nlcd_clip_transform = pipe_output['nlcd_clip_transform']
+    nee_msa = pipe_output['nee_msa']
+    nee_clip_transform = pipe_output['nee_clip_transform']
+    nee_crs = pipe_output['nee_crs']
 
-    # gpp_msa_rr_filled = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name)
-    # # save_tiff(gpp_msa_rr_filled, '../output/msagpptest.tif', nlcd_crs, nlcd_clip_transform)
-    
-    # nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, nlcd_clip_transform, nlcd_crs, nee_clip_transform, nee_crs)
-    # downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled
-    # # save_tiff(downscaled_nee, '../output/msaneetest.tif', nlcd_crs, nlcd_clip_transform)
-    # # ====== test with 1 msa ========
-    
+    from rasterio.transform import Affine
+    target_transform = nlcd_clip_transform * Affine.scale(250 / 30)
+
+    gpp_msa_rr_filled_30m = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name)
+    gpp_msa_rr_filled_250m = reproject_gpp_filled(gpp_msa_rr_filled_30m, nlcd_clip_transform, nlcd_crs, target_resolution=250, target_transform=target_transform)
+    save_tiff(gpp_msa_rr_filled_30m, '../output/msa_test/gpp_msa_rr_filled_30m_grandrapids.tif', nlcd_crs, nlcd_clip_transform)
+    save_tiff(gpp_msa_rr_filled_250m, '../output/msa_test/gpp_msa_rr_filled_250m_grandrapids.tif', nlcd_crs, target_transform)
+
+    nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled_250m, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs)
+    save_tiff(nee_gpp_ratio_fine, '../output/msa_test/nee_gpp_ratio_grandrapids.tif', nlcd_crs, target_transform)
+    # from rasterio import plot
+    # rasterio.plot.show(nee_gpp_ratio_fine)
+
+    downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled_250m
+    save_tiff(downscaled_nee, '../output//msa_test/nee_downscaled250_grandrapids.tif', nlcd_crs, target_transform)
+    # ====== test with 1 msa ========
+
+
 
 
 if __name__ == "__main__":
