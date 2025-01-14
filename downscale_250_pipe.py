@@ -80,7 +80,7 @@ def downscale_pipe(year_month, nee_memory):
 
     # ======== test with all msas ========
     mem_downscaled_nee_list = []
-    for index, record in msa_ds.iterrows():
+    for index, record in msa_ds.iterrows(): #debug: change to msa_ds[:3}.iterrows()
         msa_name = record['NAMELSAD']
         print(f'Generating downsclaed data for {msa_name}...')
         msa = msa_ds.loc[[index]]
@@ -127,8 +127,8 @@ def main():
             print("Downscaling NEE for", f"{year:04d}{month:02d}...")
 
             # clear the global variable every month
-            gpp_mean_cat_data = []
-            test_ratio_list = [] # test only, delete later
+            gpp_mean_cat_data.clear()
+            test_ratio_list.clear # test only, delete later
 
             downscale_pipe(f"{year:04d}{month:02d}", nee_memory)
 

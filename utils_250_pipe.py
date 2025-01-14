@@ -8,10 +8,9 @@ resolution_x = 360 / 4320
 resolution_y = 180 / 2160
 nee_transform = rasterio.transform.from_origin(minx, maxy, resolution_x, resolution_y)
 
-global gpp_mean_cat_data 
+
 gpp_mean_cat_data = []
 
-global test_ratio_list
 test_ratio_list = [] # test only, delete later
 
 # Write the ndarray to a GeoTIFF
@@ -191,6 +190,7 @@ def create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa):
 
 
 def gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name, save_mean_csv=True):
+    global gpp_mean_cat_data
     valid_gpp_mask = ~np.isnan(gpp_msa_rr)
     nlcd_mask_dict = create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa)
 
@@ -314,6 +314,8 @@ def pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, memfile_n
 
     nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled_250m, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs)
     
+    global test_ratio_list
+
     testmem = create_in_memory_ds(nee_gpp_ratio_fine, nlcd_crs, target_transform, return_file=True) # test only, delete later
     test_ratio_list.append(testmem) # test only, delete later
 
@@ -432,8 +434,8 @@ def pipe():
     gpp_mean_data_df = pd.DataFrame(gpp_mean_cat_data)
     gpp_mean_data_df.to_csv('../gis/output/gpp_mean_data_250.csv', index=False)
 
-    datasets_ratio = [mem.open() for mem in test_ratio_list]
-    merged_data_ratio, merged_transform_ratio = rasterio.merge.merge(datasets_ratio, nodata=np.nan)
+    # datasets_ratio = [mem.open() for mem in test_ratio_list]
+    # merged_data_ratio, merged_transform_ratio = rasterio.merge.merge(datasets_ratio, nodata=np.nan)
     # save_tiff(merged_data_ratio[0], '../gis/output/ratio_us.tif', datasets_ratio[0].crs, merged_transform_ratio)
 
     # Merge datasets
