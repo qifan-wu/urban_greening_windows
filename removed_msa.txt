@@ -1,0 +1,25 @@
+removed those MSA (lack of valid gpp values, cause extreme values when calculating nee/gpp ratio (ratio>100)), considering data of 2015-01:
+
+Casper, WY Metro Area
+Sioux Falls, SD-MN Metro Area
+Wichita Falls, TX Metro Area
+Omaha, NE-IA Metro Area
+Ames, IA Metro Area
+Des Moines-West Des Moines, IA Metro Area
+Cedar Rapids, IA Metro Area
+La Crosse-Onalaska, WI-MN Metro Area
+Billings, MT Metro Area
+Great Falls, MT Metro Area
+Bismarck, ND Metro Area
+Minot, ND Metro Area
+Helena, MT Metro Area
+Rapid City, SD Metro Area
+Idaho Falls, ID Metro Area
+Rochester, MN Metro Area
+Dubuque, IA Metro Area
+Iowa City, IA Metro Area
+Cheyenne, WY Metro Area
+Greeley, CO Metro Area
+Denver-Aurora-Centennial, CO Metro Area
+Colorado Springs, CO Metro Area
+Colorado Springs, CO Metro Area
