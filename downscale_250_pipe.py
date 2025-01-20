@@ -4,42 +4,6 @@ from utils_250_pipe import *
 MSA_FILE = '../gis/msa/msaUS_mland_aea1_M1_all.shp' # for US without MSA from Hawaii, Puerto Rico and Alaska (no NLCD or no carbon data), crs: Albers Equal Area
 UA_FILE = "../gis/ua/ua_us_30_clip1.tif" # crs: Albers Equal Area, resolution 30m
 
-
-# def pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, memfile_nee):
-#      # Subsetting to my AOI
-#     msa_name = msa['NAMELSAD'].values[0]
-
-#     pipe_output = pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, memfile_nee)
-#     gpp_msa_rr = pipe_output['gpp_msa_rr']
-#     ua_msa_rr = pipe_output['ua_msa_rr']
-#     nlcd_msa = pipe_output['nlcd_msa']
-#     nlcd_crs = pipe_output['nlcd_crs']
-#     nlcd_clip_transform = pipe_output['nlcd_clip_transform']
-#     nee_msa = pipe_output['nee_msa']
-#     nee_clip_transform = pipe_output['nee_clip_transform']
-#     nee_crs = pipe_output['nee_crs']
-
-
-#     from rasterio.transform import Affine
-#     target_transform = nlcd_clip_transform * Affine.scale(250 / 30)
-#     gpp_msa_rr_filled_30m = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name, save_mean_csv=True) # change to false if don't want mean gpp as csv
-#     gpp_msa_rr_filled_250m = reproject_gpp_filled(gpp_msa_rr_filled_30m, nlcd_clip_transform, nlcd_crs, target_resolution=250, target_transform=target_transform)
-
-#     nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled_250m, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs)
-    
-#     # testmem = create_in_memory_ds(nee_gpp_ratio_fine, nlcd_crs, target_transform, return_file=True) # test only, delete later
-#     # test_ratio_list.append(testmem) # test only, delete later
-
-#     downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled_250m
-
-#     downscaled_nee_info = {
-#         'data': downscaled_nee,
-#         'crs': nlcd_crs,
-#         'transform': target_transform,  # Update with 250m transform
-#     }
-
-#     return downscaled_nee_info
-
     
 def downscale_pipe(year_month, nee_memory):
     '''
@@ -82,15 +46,13 @@ def downscale_pipe(year_month, nee_memory):
     mem_downscaled_nee_list = []
     for index, record in msa_ds.iterrows(): #debug: change to msa_ds[:3}.iterrows()
         msa_name = record['NAMELSAD']
-        print(f'Generating downsclaed data for {msa_name}...')
+        # print(f'Generating downscaled data for {msa_name}...')
         msa = msa_ds.loc[[index]]
         
         downscaled_nee_msa = pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, UA_FILE, memfile_nee)
         mem = create_in_memory_ds(downscaled_nee_msa['data'], downscaled_nee_msa['crs'], downscaled_nee_msa['transform'], return_file=True)
         mem_downscaled_nee_list.append(mem)
         
-        
-
 
     datasets_ratio = [mem.open() for mem in test_ratio_list]
     merged_data_ratio, merged_transform_ratio = rasterio.merge.merge(datasets_ratio, nodata=np.nan)
@@ -116,14 +78,14 @@ def downscale_pipe(year_month, nee_memory):
 
 def main():
     print(f"==== Downscaling Start ====")
-    for year in range(2003, 2016): #TODO change to (2001, 2016)
+    for year in range(2005, 2016): #TODO change to (2001, 2016)
         print(f"Prepare Raw NEE for {year}...")
         nee_memory = []
         nee_file = f"../gis/NEE/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.{year}.nc" # EPSG:4326, resolution 1/12 degree
         read_nee(nee_file, nee_transform, nee_memory)
 
-       
-        for month in range(1,13): 
+
+        for month in range(1,13):
             print("Downscaling NEE for", f"{year:04d}{month:02d}...")
 
             # clear the global variable every month
@@ -137,6 +99,9 @@ def main():
             gpp_mean_data_df.to_csv(f'../gis/output/statistics/gpp_mean_data_250_{year:04d}{month:02d}.csv', index=False)
 
         print(f"--- Finish downscaling NEE for {year} ---")
+        for memfile in nee_memory:
+            memfile.close() 
+        nee_memory.clear()
     print(f"==== Downscaling Finished ====")
 
 if __name__ == "__main__":
