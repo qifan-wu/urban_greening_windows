@@ -32,9 +32,15 @@ def save_tiff(data, output_path, crs, transform):
 
     print(f"GeoTIFF saved to {output_path}")
 
-def create_in_memory_ds(data, crs, transform, return_file=False):
+def create_in_memory_ds(data, crs, transform, return_file=True):
     '''
-    data: 2d array
+    Input
+        data: 2d array
+
+    ---
+    Return:
+        MemoryFile (if return_file=True)
+        DatasetWriter (if return_file=False)
     '''
     memfile = MemoryFile()
     with memfile.open(
@@ -62,19 +68,7 @@ def read_nee(nee_file, nee_transform, nee_memory):
         print("Writing NEE for time: ", time_str), "to memory"
         nee_time = nee_ds['NEE'][i]
         nee_crs = nee_time.rio.crs
-        # Save to an in-memory GeoTIFF
-        # memfile = MemoryFile()
-        # with memfile.open(
-        #     driver="GTiff",
-        #     height=nee_time.shape[0],
-        #     width=nee_time.shape[1],
-        #     count=1,
-        #     dtype=nee_time.dtype.name,
-        #     crs=nee_crs,
-        #     transform=nee_transform,
-        # ) as dst:
-        #     # Write the data to the in-memory file
-        #     dst.write(nee_time.values, 1)
+
         memfile = create_in_memory_ds(nee_time, nee_crs, nee_transform, return_file=True)
         nee_memory.append(memfile)
 
@@ -86,6 +80,28 @@ from rasterio.warp import calculate_default_transform, reproject
 import numpy as np
 
 def pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, memfile_nee):
+    '''
+    Read gpp, nlcd, ua, and nee data and clip within a msa, generate parameters for future use
+
+    Parameters:
+        msa(geojson?) e.g.msa_ds.loc[[0]]
+        gpp_file (str): a path to gpp file
+        nlcd_file (str): a path to nlcd landuse file
+        ua_file (str): a path to urban area file
+        memfile_nee (rasterio.io.MemoryFile): memory file for nee for given year_month
+
+    Returns:
+        dict: A dictionary containing:
+            - 'gpp_msa_rr' (numpy.ndarray): The GPP data reprojected and resampled with NLCD.
+            - 'ua_msa_rr' (numpy.ndarray): The Urban Area data reprojected and resampled with NLCD.
+            - 'nlcd_msa' (numpy.ndarray): The clipped NLCD raster data within the MSA.
+            - 'nlcd_crs' (rasterio.crs.CRS): The coordinate reference system (CRS) of the NLCD data.
+            - 'nlcd_clip_transform' (affine.Affine): The affine transformation of NLCD raster.
+            - 'nee_msa' (numpy.ndarray): The clipped raw NEE raster data within the MSA.
+            - 'nee_clip_transform' (affine.Affine): The affine transformation of the clipped NEE raster.
+            - 'nee_crs' (rasterio.crs.CRS): raw nee crs, it's same to raw gpp crs
+
+    '''
     with rasterio.open(nlcd_file) as nlcd_dstrd:
         nlcd_crs = nlcd_dstrd.crs
         geometries_aea = [mapping(geom) for geom in msa.geometry]
@@ -95,7 +111,7 @@ def pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, memfile_nee):
             nlcd_clip_image, nlcd_clip_transform = mask(nlcd_dstrd, geometries_aea, crop=True)
         except ValueError as e:
             print(f"No NLCD data for {msa['NAMELSAD'].values[0]}")
-            nlcd_clip_image
+            # nlcd_clip_image
             
         nlcd_msa = nlcd_clip_image[0]
 
@@ -166,6 +182,9 @@ def pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, memfile_nee):
 
 
 def create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa):
+    '''
+    Create masks for different landcover categories
+    '''
     
     urban_mask = (ua_msa_rr != 0)
     suburban_mask = (ua_msa_rr == 65535) # nodata value for ua_us_30_clip0.tif, (the value is 0 for ua_30 michigan)
@@ -190,6 +209,20 @@ def create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa):
 
 
 def gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name, save_mean_csv=True):
+    '''
+    Fill gaps in GPP data using mean GPP values for different landcover categories
+
+    Parameters:
+        - gpp_msa_rr (numpy.ndarray): The GPP data reprojected and resampled with NLCD.
+        - ua_msa_rr (numpy.ndarray): The Urban Area data reprojected and resampled with NLCD.
+        - nlcd_msa (numpy.ndarray): The clipped NLCD raster data within the MSA.
+        - msa_name (str): The name of the MSA.
+        - save_mean_csv (bool): Whether to save the mean GPP values for each landuse category to a CSV file.
+
+    Returns:
+        - gpp_msa_rr_filled_30m (numpy.ndarray): The gap-filled GPP data at 30m resolution.
+    '''
+
     global gpp_mean_cat_data
     valid_gpp_mask = ~np.isnan(gpp_msa_rr)
     nlcd_mask_dict = create_mask(gpp_msa_rr, ua_msa_rr, nlcd_msa)
@@ -251,6 +284,10 @@ def reproject_gpp_filled(gpp_msa_rr_filled_30m, nlcd_clip_transform, nlcd_crs, t
 
 
 def get_gpp_coarse(gpp_msa_rr_filled, nee_msa, gpp_transform_250, nlcd_crs, nee_clip_transform, nee_crs):
+    '''
+    Reproject GPP to match NEE's CRS, resolution, and extent (~10km resolution
+    '''
+
     gpp_filled_coarse = np.empty_like(nee_msa, dtype=np.float32)
 
     # Reproject and resample GPP to match NEE's CRS, resolution, and extent
@@ -268,6 +305,9 @@ def get_gpp_coarse(gpp_msa_rr_filled, nee_msa, gpp_transform_250, nlcd_crs, nee_
     return gpp_filled_coarse
 
 def get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs):
+    '''
+    Calculate NEE/GPP ratio at fine resolution (250m), based on the ratio at the coarse resolution (10km)
+    '''
     gpp_filled_coarse = get_gpp_coarse(gpp_msa_rr_filled, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs)
 
     
@@ -292,11 +332,14 @@ def get_nee_gpp_ratio_fine(gpp_msa_rr_filled, nee_msa, target_transform, nlcd_cr
     return nee_gpp_ratio_fine
 
 
-def pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, memfile_nee):
+def pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, memfile_nee, save_ratio_tif=True): # TODO: change save_ratio_tif to False after testing ratio
+    '''
+    Generate downscaled NEE data for a given MSA
+    '''
      # Subsetting to my AOI
     msa_name = msa['NAMELSAD'].values[0]
 
-    pipe_output = pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, memfile_nee)
+    pipe_output = pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, memfile_nee) 
     gpp_msa_rr = pipe_output['gpp_msa_rr']
     ua_msa_rr = pipe_output['ua_msa_rr']
     nlcd_msa = pipe_output['nlcd_msa']
@@ -314,10 +357,10 @@ def pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, memfile_n
 
     nee_gpp_ratio_fine = get_nee_gpp_ratio_fine(gpp_msa_rr_filled_250m, nee_msa, target_transform, nlcd_crs, nee_clip_transform, nee_crs)
     
-    global test_ratio_list
-
-    testmem = create_in_memory_ds(nee_gpp_ratio_fine, nlcd_crs, target_transform, return_file=True) # test only, delete later
-    test_ratio_list.append(testmem) # test only, delete later
+    if save_ratio_tif:
+        global test_ratio_list
+        testmem = create_in_memory_ds(nee_gpp_ratio_fine, nlcd_crs, target_transform, return_file=True) # test only, delete later
+        test_ratio_list.append(testmem) # test only, delete later
 
     downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled_250m
 
@@ -336,62 +379,65 @@ from rasterio.merge import merge
 import rasterio
 from rasterio.io import MemoryFile
 
-def merge_in_batches(memfiles, batch_size):
-    merged_files = []
-    for i in range(0, len(memfiles), batch_size):
-        batch = memfiles[i:i + batch_size]
-        datasets = [mem.open() for mem in batch]
-        merged_data, merged_transform = merge(datasets)
-        for ds in datasets:
-            ds.close()
-        # Write intermediate result to a temporary MemoryFile
-        temp_mem = MemoryFile()
-        with temp_mem.open(
-            driver="GTiff",
-            height=merged_data.shape[1],
-            width=merged_data.shape[2],
-            count=1,
-            dtype=merged_data.dtype,
-            crs=datasets[0].crs,  # Assume same CRS
-            transform=merged_transform,
-        ) as dst:
-            dst.write(merged_data[0], 1)
-        merged_files.append(temp_mem)
-    return merged_files
+# def merge_in_batches(memfiles, batch_size):
+#     merged_files = []
+#     for i in range(0, len(memfiles), batch_size):
+#         batch = memfiles[i:i + batch_size]
+#         datasets = [mem.open() for mem in batch]
+#         merged_data, merged_transform = merge(datasets)
+#         for ds in datasets:
+#             ds.close()
+#         # Write intermediate result to a temporary MemoryFile
+#         temp_mem = MemoryFile()
+#         with temp_mem.open(
+#             driver="GTiff",
+#             height=merged_data.shape[1],
+#             width=merged_data.shape[2],
+#             count=1,
+#             dtype=merged_data.dtype,
+#             crs=datasets[0].crs,  # Assume same CRS
+#             transform=merged_transform,
+#         ) as dst:
+#             dst.write(merged_data[0], 1)
+#         merged_files.append(temp_mem)
+#     return merged_files
 
 
-def merge_datasets_to_disk(mem_downscaled_nee_list, output_file):
-    """Merge datasets and write directly to disk."""
-    print("Preparing datasets for merging...")
+# def merge_datasets_to_disk(mem_downscaled_nee_list, output_file):
+#     """Merge datasets and write directly to disk."""
+#     print("Preparing datasets for merging...")
     
-    # Open memory files
-    datasets = [mem.open() for mem in mem_downscaled_nee_list]
+#     # Open memory files
+#     datasets = [mem.open() for mem in mem_downscaled_nee_list]
     
-    # Extract metadata from the first dataset
-    meta = datasets[0].meta.copy()
+#     # Extract metadata from the first dataset
+#     meta = datasets[0].meta.copy()
     
-    merged_data, merged_transform = rasterio.merge.merge(datasets, nodata=np.nan)
+#     merged_data, merged_transform = rasterio.merge.merge(datasets, nodata=np.nan)
     
-    # Update metadata with the merged dimensions
-    meta = datasets[0].meta.copy()
-    meta.update({
-        "height": merged_data.shape[1],
-        "width": merged_data.shape[2],
-        "transform": merged_transform,
-        "nodata": np.nan,
-    })
+#     # Update metadata with the merged dimensions
+#     meta = datasets[0].meta.copy()
+#     meta.update({
+#         "height": merged_data.shape[1],
+#         "width": merged_data.shape[2],
+#         "transform": merged_transform,
+#         "nodata": np.nan,
+#     })
     
-    # Write the merged raster to disk
-    print("Writing merged data to disk...")
-    with rasterio.open(output_file, 'w', **meta) as dst:
-        dst.write(merged_data[0], 1)  # Assuming single-band data
+#     # Write the merged raster to disk
+#     print("Writing merged data to disk...")
+#     with rasterio.open(output_file, 'w', **meta) as dst:
+#         dst.write(merged_data[0], 1)  # Assuming single-band data
 
-    print("Merging completed and saved to:", output_file)
+#     print("Merging completed and saved to:", output_file)
 
 import pandas as pd
 
 
 def pipe():
+    '''
+    this pipe is for test only, not used in final downscaling
+    '''
     import geopandas as gpd
     nee_memory = []
     nee_file = "../gis/NEE/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.2015.nc" # EPSG:4326, resolution 1/12 degree
@@ -422,7 +468,7 @@ def pipe():
     mem_downscaled_nee_list = []
     for index, record in msa_ds.iterrows():
         msa_name = record['NAMELSAD']
-        # print(f'Generating downsclaed data for {msa_name}...')
+        # print(f'Generating downscaled data for {msa_name}...')
         msa = msa_ds.loc[[index]]
         
         downscaled_nee_msa = pipe_downscaled_nee_msa(msa_ds, msa, gpp_file, nlcd_file, ua_file, memfile_nee)

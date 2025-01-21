@@ -2,6 +2,7 @@ from utils_250_pipe import *
 
 # MSA_FILE = '../gis/msa/msaUS_mland_aea1_M1.shp' # for US without MSA from Hawaii, Puerto Rico and Alaska (no NLCD or no carbon data), and without some msa in midwest (see removed_msa.txt); crs: Albers Equal Area
 MSA_FILE = '../gis/msa/msaUS_mland_aea1_M1_all.shp' # for US without MSA from Hawaii, Puerto Rico and Alaska (no NLCD or no carbon data), crs: Albers Equal Area
+# MSA_FILE = '../gis/msa/msaUS_mland_aea1_M1_michigan.shp' # Michigan MSA for test
 UA_FILE = "../gis/ua/ua_us_30_clip1.tif" # crs: Albers Equal Area, resolution 30m
 
     
@@ -54,9 +55,9 @@ def downscale_pipe(year_month, nee_memory):
         mem_downscaled_nee_list.append(mem)
         
 
-    datasets_ratio = [mem.open() for mem in test_ratio_list]
-    merged_data_ratio, merged_transform_ratio = rasterio.merge.merge(datasets_ratio, nodata=np.nan)
-    save_tiff(merged_data_ratio[0], f'../gis/output/downscaleRatio/ratio_us_{year_month}.tif', datasets_ratio[0].crs, merged_transform_ratio)
+    # datasets_ratio = [mem.open() for mem in test_ratio_list]
+    # merged_data_ratio, merged_transform_ratio = rasterio.merge.merge(datasets_ratio, nodata=np.nan)
+    # save_tiff(merged_data_ratio[0], f'../gis/output/downscaleRatio/ratio_us_{year_month}.tif', datasets_ratio[0].crs, merged_transform_ratio)
 
     # Merge datasets
     datasets = [mem.open() for mem in mem_downscaled_nee_list]
@@ -78,7 +79,7 @@ def downscale_pipe(year_month, nee_memory):
 
 def main():
     print(f"==== Downscaling Start ====")
-    for year in range(2005, 2016): #TODO change to (2001, 2016)
+    for year in range(2006, 2016): #TODO change to (2001, 2016)
         print(f"Prepare Raw NEE for {year}...")
         nee_memory = []
         nee_file = f"../gis/NEE/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.{year}.nc" # EPSG:4326, resolution 1/12 degree
@@ -90,18 +91,29 @@ def main():
 
             # clear the global variable every month
             gpp_mean_cat_data.clear()
-            test_ratio_list.clear # test only, delete later
 
             downscale_pipe(f"{year:04d}{month:02d}", nee_memory)
 
             # Save gpp_mean_values to csv
             gpp_mean_data_df = pd.DataFrame(gpp_mean_cat_data)
-            gpp_mean_data_df.to_csv(f'../gis/output/statistics/gpp_mean_data_250_{year:04d}{month:02d}.csv', index=False)
+            # gpp_mean_data_df.to_csv(f'../gis/output/statistics/gpp_mean_data_250_{year:04d}{month:02d}.csv', index=False)
+
+            # Save ratio to tif
+            datasets_ratio = [mem.open() for mem in test_ratio_list]
+            merged_data_ratio, merged_transform_ratio = rasterio.merge.merge(datasets_ratio, nodata=np.nan)
+            save_tiff(merged_data_ratio[0], f'../gis/output/downscaleRatio/ratio_us_{year:04d}_{month:02d}.tif', datasets_ratio[0].crs, merged_transform_ratio)
+
+            # Close memory for ratio
+            for memfile in test_ratio_list:
+                memfile.close()
+            test_ratio_list.clear() 
 
         print(f"--- Finish downscaling NEE for {year} ---")
         for memfile in nee_memory:
             memfile.close() 
         nee_memory.clear()
+
+        
     print(f"==== Downscaling Finished ====")
 
 if __name__ == "__main__":
