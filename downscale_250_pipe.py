@@ -79,7 +79,7 @@ def downscale_pipe(year_month, nee_memory):
 
 def main():
     print(f"==== Downscaling Start ====")
-    for year in range(2006, 2016): #TODO change to (2001, 2016)
+    for year in range(2001, 2016): #TODO change to (2001, 2016)
         print(f"Prepare Raw NEE for {year}...")
         nee_memory = []
         nee_file = f"../gis/NEE/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.{year}.nc" # EPSG:4326, resolution 1/12 degree

@@ -117,7 +117,7 @@ def pipe_read_gen_params(msa, gpp_file, nlcd_file, ua_file, memfile_nee):
 
         with rasterio.open(gpp_file) as gpp_dstrd:
             msa_crsgpp=msa.to_crs(gpp_dstrd.crs)
-            msa_crs = msa_crsgpp.crs
+
             gpp_crs = gpp_dstrd.crs
             
             gpp_clip_image, gpp_clip_transform = mask(gpp_dstrd,msa_crsgpp.geometry,crop=True)
