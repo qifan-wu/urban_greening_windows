@@ -356,6 +356,21 @@ def merge_datasets_to_disk(mem_downscaled_nee_list, output_file):
 
     print("Merging completed and saved to:", output_file)
 
+
+def calculate_msa_mean(raster_file, msa_gdf):
+    mean_values = []
+    for _, row in msa_gdf.iterrows():
+        msa_geometry = [row['geometry']]
+        with rasterio.open(raster_file) as src:
+            out_image, _ = mask(src, msa_geometry, crop=True, nodata=np.nan)
+            out_image = out_image[0]
+        
+        # Compute mean ignoring NaNs
+        mean_value = np.nanmean(out_image) if np.any(~np.isnan(out_image)) else np.nan
+        mean_values.append(mean_value)
+    return mean_values
+
+
 def main():
     import geopandas as gpd
     nee_memory = []
@@ -444,6 +459,31 @@ def main():
     # # ====== test with 1 msa ========
     
 
+import numpy as np
+def get_masked_raster(gdf, raster, raster_transform):
+    '''
+    mask a raster file with a shape (before processing, make sure the shape and raster are in the same crs)
+
+    params:
+        gdf(geopandas.geodataframe.GeoDataFrame)
+        raster(np.ndarray)
+        raster_transform(np.ndarray)
+
+    return:
+        masked raster(np.ndarray)
+    '''
+    # Rasterize the selected shape to create a mask
+    mask = rasterio.features.rasterize(
+        [(geom, 1) for geom in gdf.geometry],
+        out_shape=raster.shape,
+        transform=raster_transform,
+        fill=0,
+        dtype=np.uint8
+    )
+
+    # Apply the mask to the raster
+    masked_raster = np.where(mask == 1, raster, np.nan)
+    return masked_raster
 
 if __name__ == "__main__":
     main()
