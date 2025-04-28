@@ -485,5 +485,9 @@ def get_masked_raster(gdf, raster, raster_transform):
     masked_raster = np.where(mask == 1, raster, np.nan)
     return masked_raster
 
+
+
+
+
 if __name__ == "__main__":
     main()
