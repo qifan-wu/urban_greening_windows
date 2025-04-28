@@ -1,7 +1,7 @@
 
 MSA_FILE = r'c:\Users\qifanw\Documents\gis\msa\msaUS_mland_aea1_M1_all.shp'
 MSA_REGION_FILE = r'c:\Users\qifanw\Documents\gis\msa\region\msa_all_region.shp'
-
+MSA_NAME_REGION_TABLE = r'c:\Users\qifanw\Documents\data\intermedia\msa_name_region.csv'
 
 # get NEE crs which is equal to GPP crs (EPSG:4326)
 # gpp_file = f'../gis/GPP_monthly_mean/gpp_200101.tif'
@@ -10,7 +10,6 @@ MSA_REGION_FILE = r'c:\Users\qifanw\Documents\gis\msa\region\msa_all_region.shp'
 # nee_crs = gpp_crs
 NEE_CRS = "EPSG:4326"
 GPP_CRS = "EPSG:4326"
-
 
 from rasterio.transform import Affine
 # # get original NEE transform
@@ -65,3 +64,8 @@ CLIMATE_ZONE = {
     ]
 }
 
+# Meterological data MSA mean
+PPT_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\ppt_msa_mean_2001-2015.csv'
+TMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\tmean_msa_mean_2001-2015.csv'
+TDMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\tdmean_msa_mean_2001-2015.csv'
+SIF_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\green_indices_msa_mean\sif_msa_mean_2001-2015.csv'
