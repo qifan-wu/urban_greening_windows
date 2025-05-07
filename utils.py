@@ -479,7 +479,7 @@ def get_masked_raster(gdf, raster, raster_transform):
         transform=raster_transform,
         fill=0,
         dtype=np.uint8
-    )
+    ) # If the center of a pixel lies within the polygon, that pixel is marked as 1.
 
     # Apply the mask to the raster
     masked_raster = np.where(mask == 1, raster, np.nan)
