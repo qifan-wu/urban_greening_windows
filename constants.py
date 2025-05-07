@@ -69,3 +69,5 @@ PPT_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\ppt_m
 TMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\tmean_msa_mean_2001-2015.csv'
 TDMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\tdmean_msa_mean_2001-2015.csv'
 SIF_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\green_indices_msa_mean\sif_msa_mean_2001-2015.csv'
+
+FF_MONTHLY_MEAN = r'c:\Users\qifanw\Documents\data\intermedia\ODIAC2000To2021mean.csv'
