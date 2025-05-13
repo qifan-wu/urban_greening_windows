@@ -71,3 +71,5 @@ TDMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\td
 SIF_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\green_indices_msa_mean\sif_msa_mean_2001-2015.csv'
 
 FF_MONTHLY_MEAN = r'c:\Users\qifanw\Documents\data\intermedia\ODIAC2000To2021mean.csv'
+
+NEE_TREND = r'c:\Users\qifanw\Documents\data\intermedia\trend\nee_trend.csv'
