@@ -72,4 +72,4 @@ SIF_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\green_indices_msa_me
 
 FF_MONTHLY_MEAN = r'c:\Users\qifanw\Documents\data\intermedia\ODIAC2000To2021mean.csv'
 
-NEE_TREND = r'c:\Users\qifanw\Documents\data\intermedia\trend\nee_trend.csv'
+CS_TREND = r'c:\Users\qifanw\Documents\data\intermedia\trend\cs_trend.csv'
