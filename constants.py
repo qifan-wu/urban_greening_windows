@@ -23,6 +23,7 @@ NEE_ORIG_TRANSFORM = Affine(*(0.08333333333333333, 0.0, -180.0,
        0.0, -0.08333333333333333, 90.0))
 
 NEE_MSA_MONTHLY_MEAN = r'c:\Users\qifanw\Documents\data\intermedia\msa_nee_mean.csv'
+NEE_MSA_MONTHLY_MEAN_XBASE = r'c:\Users\qifanw\Documents\data\intermedia\msa_nee_mean_fluxx.csv'
 
 CLIMATE_ZONE = {
     'northeast': [
