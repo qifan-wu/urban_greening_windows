@@ -11,20 +11,6 @@ MSA_NAME_REGION_TABLE = r'c:\Users\qifanw\Documents\data\intermedia\msa_name_reg
 NEE_CRS = "EPSG:4326"
 GPP_CRS = "EPSG:4326"
 
-from rasterio.transform import Affine
-# # get original NEE transform
-# minx, miny, maxx, maxy = -180.0, -90.0, 180.0, 90.0
-# nee_orig_resolution_x = 1/12
-# nee_orig_resolution_y = 1/12
-# nee_orig_transform = rasterio.transform.from_origin(minx, maxy, nee_orig_resolution_x, nee_orig_resolution_y)
-# nee_orig_transform
-# NEE_ORIG_TRANSFORM = Affine(*nee_orig_transform)
-NEE_ORIG_TRANSFORM = Affine(*(0.08333333333333333, 0.0, -180.0,
-       0.0, -0.08333333333333333, 90.0))
-
-NEE_MSA_MONTHLY_MEAN = r'c:\Users\qifanw\Documents\data\intermedia\msa_nee_mean.csv'
-NEE_MSA_MONTHLY_MEAN_XBASE = r'c:\Users\qifanw\Documents\data\intermedia\msa_nee_mean_fluxx.csv'
-
 CLIMATE_ZONE = {
     'northeast': [
         'CT', 'DE', 'ME', 'MD', 'MA', 'NH', 'NJ', 'NY', 'PA', 'VT',
@@ -65,10 +51,24 @@ CLIMATE_ZONE = {
     ]
 }
 
+from rasterio.transform import Affine
+# # get original NEE transform
+# minx, miny, maxx, maxy = -180.0, -90.0, 180.0, 90.0
+# nee_orig_resolution_x = 1/12
+# nee_orig_resolution_y = 1/12
+# nee_orig_transform = rasterio.transform.from_origin(minx, maxy, nee_orig_resolution_x, nee_orig_resolution_y)
+# nee_orig_transform
+# NEE_ORIG_TRANSFORM = Affine(*nee_orig_transform)
+NEE_ORIG_TRANSFORM = Affine(*(0.08333333333333333, 0.0, -180.0,
+       0.0, -0.08333333333333333, 90.0))
+
+NEE_MSA_MONTHLY_MEAN = r'c:\Users\qifanw\Documents\data\intermedia\msa_nee_mean.csv'
+NEE_MSA_MONTHLY_MEAN_XBASE = r'c:\Users\qifanw\Documents\data\intermedia\msa_nee_mean_fluxx.csv'
+
 # Meterological data MSA mean
-PPT_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\ppt_msa_mean_2001-2015.csv'
-TMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\tmean_msa_mean_2001-2015.csv'
-TDMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\tdmean_msa_mean_2001-2015.csv'
+PPT_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\ppt_msa_mean_2001-2021.csv'
+TMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\tmean_msa_mean_2001-2021.csv'
+TDMEAN_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\prism_msa_mean\tdmean_msa_mean_2001-2021.csv'
 SIF_MEAN_FILE = r'c:\Users\qifanw\Documents\data\intermedia\green_indices_msa_mean\sif_msa_mean_2001-2021.csv'
 
 FF_MONTHLY_MEAN = r'c:\Users\qifanw\Documents\data\intermedia\ODIAC2000To2021mean.csv'
