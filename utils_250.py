@@ -374,7 +374,6 @@ def merge_datasets_to_disk(mem_downscaled_nee_list, output_file):
     
     merged_data, merged_transform = rasterio.merge.merge(datasets, nodata=np.nan)
     
-    
     # Update metadata with the merged dimensions
     meta = datasets[0].meta.copy()
     meta.update({
@@ -394,7 +393,7 @@ def merge_datasets_to_disk(mem_downscaled_nee_list, output_file):
 def main():
     import geopandas as gpd
     nee_memory = []
-    nee_file = "../urban_greening/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.2015.nc"
+    nee_file = "../urban_greening/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.2015.nc" # EPSG:4326, resolution 1/12 degree
     read_nee(nee_file, nee_transform, nee_memory)
     # print(nee_memory)
 
@@ -403,7 +402,7 @@ def main():
     msa_file = '../urban_greening/msa/msaUS/msaUS_mland_aea1_M1.shp' # for US without MSA from Hawaii, Puerto Rico and Alaska (no NLCD or no carbon data), and without some msa in midwest (see removed_msa.txt); crs: Albers Equal Area
     
     gpp_file = "../urban_greening/nov.15/michigan_test/modis-250-gpp-2015001.tif" # EPSG:4326
-    nee_file = "../urban_greening/NEE.RS.FP-NONE.MLM-ALL.METEO-NONE.4320_2160.monthly.2015.nc" # EPSG:4326, resolution 1/12 degree
+    
     nlcd_file = "../urban_greening/nov.15/nlcd_2016_land_cover_l48_20210604.img" # crs: Albers Equal Area, resolution 30m
     ua_file = "../urban_greening/ua/ua_us_30_clip1.tif" # crs: Albers Equal Area, resolution 30m
 
@@ -474,10 +473,12 @@ def main():
     nee_crs = pipe_output['nee_crs']
 
     from rasterio.transform import Affine
-    target_transform = nlcd_clip_transform * Affine.scale(250 / 30)
+    GPP_SCALE = 250
+    NLCD_SCALE = 30
+    target_transform = nlcd_clip_transform * Affine.scale(GPP_SCALE / NLCD_SCALE)
 
     gpp_msa_rr_filled_30m = gap_fill_gpp(gpp_msa_rr, ua_msa_rr, nlcd_msa, msa_name)
-    gpp_msa_rr_filled_250m = reproject_gpp_filled(gpp_msa_rr_filled_30m, nlcd_clip_transform, nlcd_crs, target_resolution=250, target_transform=target_transform)
+    gpp_msa_rr_filled_250m = reproject_gpp_filled(gpp_msa_rr_filled_30m, nlcd_clip_transform, nlcd_crs, target_resolution=GPP_SCALE, target_transform=target_transform)
     save_tiff(gpp_msa_rr_filled_30m, '../output/msa_test/gpp_msa_rr_filled_30m_grandrapids.tif', nlcd_crs, nlcd_clip_transform)
     save_tiff(gpp_msa_rr_filled_250m, '../output/msa_test/gpp_msa_rr_filled_250m_grandrapids.tif', nlcd_crs, target_transform)
 
@@ -487,10 +488,8 @@ def main():
     # rasterio.plot.show(nee_gpp_ratio_fine)
 
     downscaled_nee = nee_gpp_ratio_fine * gpp_msa_rr_filled_250m
-    save_tiff(downscaled_nee, '../output//msa_test/nee_downscaled250_grandrapids.tif', nlcd_crs, target_transform)
+    save_tiff(downscaled_nee, '../output/msa_test/nee_downscaled250_grandrapids.tif', nlcd_crs, target_transform)
     # ====== test with 1 msa ========
-
-
 
 
 if __name__ == "__main__":
