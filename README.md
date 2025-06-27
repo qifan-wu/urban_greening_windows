@@ -2,6 +2,7 @@
 
 Read table "notes" to understand the codebook.
 
-For NEE downscaling for FLUXCOM.ORG, simple workflow:
+For NEE downscaling for FLUXCOM.ORG: simple workflow:
 ![Simplified Workflow Overview](/downscaling_flowcharts/downscaling_simple.png)
+detailed workflow:
 ![Detailed Workflow Overview](/downscaling_flowcharts/downscaling_details.png)
